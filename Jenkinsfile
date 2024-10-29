@@ -2,43 +2,40 @@ pipeline {
     agent any
 
     tools {
-        maven 'Maven_3.9.9'
+        // Specify the tool name and type here
+        // Example: maven 'Maven 3.6.3'
     }
 
     environment {
-        KUBECONFIG = '/home/ec2-user/.kube/config'
+        KUBECONFIG = 'path/to/kubeconfig'
     }
 
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/SakthiSiddhu/TodoBackend'
+                git branch: 'branch-name', url: 'https://github.com/SakthiSiddhu/SampleReactApp'
             }
         }
 
         stage('Build') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                // Command to build the project, skipping tests
+                // Example: sh 'mvn clean install -DskipTests'
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Docker Build and Push') {
             steps {
                 script {
-                    def dockerTag = "latest"
-                    def projectName = "todobackend"
-                    sh "docker build -t sakthisiddu1/${projectName}:${dockerTag} ."
-                }
-            }
-        }
+                    def dockerTag = 'latest' // or any other tag you want to use
+                    def projectName = 'samplereactapp' // extracted from the GitHub URL
 
-        stage('Push Docker Image') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhubpwd', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
-                    def dockerTag = "latest"
-                    def projectName = "todobackend"
-                    sh "docker push sakthisiddu1/${projectName}:${dockerTag}"
+                    docker.build("your-dockerhub-username/${projectName}:${dockerTag}").push()
+
+                    withCredentials([usernamePassword(credentialsId: 'your-credentials-id', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
+                        sh 'docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD'
+                        sh "docker push your-dockerhub-username/${projectName}:${dockerTag}"
+                    }
                 }
             }
         }
@@ -46,13 +43,11 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def projectName = "todobackend"
-                    def dockerTag = "latest"
                     def deploymentYaml = """
                     apiVersion: apps/v1
                     kind: Deployment
                     metadata:
-                      name: ${projectName}
+                      name: ${projectName}-deployment
                     spec:
                       replicas: 1
                       selector:
@@ -65,43 +60,43 @@ pipeline {
                         spec:
                           containers:
                           - name: ${projectName}
-                            image: sakthisiddu1/${projectName}:${dockerTag}
+                            image: your-dockerhub-username/${projectName}:${dockerTag}
                             ports:
-                            - containerPort: 9000
+                            - containerPort: container-port
                     """
+
                     def serviceYaml = """
                     apiVersion: v1
                     kind: Service
                     metadata:
-                      name: ${projectName}
+                      name: ${projectName}-service
                     spec:
                       selector:
                         app: ${projectName}
                       ports:
-                        - protocol: TCP
-                          port: 9000
-                          targetPort: 9000
+                      - protocol: TCP
+                        port: service-port
+                        targetPort: container-port
                     """
+
                     writeFile file: 'deployment.yaml', text: deploymentYaml
                     writeFile file: 'service.yaml', text: serviceYaml
+
                     sh 'kubectl apply -f deployment.yaml'
                     sh 'kubectl apply -f service.yaml'
                 }
             }
         }
 
-        stage('Wait for Deployment') {
+        stage('Sleep') {
             steps {
-                sleep 60
+                sleep time: 1, unit: 'MINUTES'
             }
         }
 
         stage('Port Forward') {
             steps {
-                script {
-                    def projectName = "todobackend"
-                    sh "kubectl port-forward --address 0.0.0.0 service/${projectName} 9000:9000"
-                }
+                sh 'kubectl port-forward --address 0.0.0.0 service/service-name container-port:service-port'
             }
         }
     }
