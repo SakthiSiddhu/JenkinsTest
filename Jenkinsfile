@@ -1,113 +1,93 @@
 pipeline {
     agent any
-
     tools {
         // Specify the tool name and type here
-        // Example: maven 'Maven 3.6.3'
     }
-
     environment {
         KUBECONFIG = 'path/to/kubeconfig'
     }
-
     stages {
         stage('Checkout') {
             steps {
                 git branch: 'branch-name', url: 'https://github.com/SakthiSiddhu/TodoBackend'
             }
         }
-
         stage('Build') {
             steps {
-                // Use the appropriate build command for your project
-                // Example: sh 'mvn clean install -DskipTests'
+                // Command to build the project, skipping tests
             }
         }
-
         stage('Docker Build and Push') {
             steps {
                 script {
-                    def projectName = 'todobackend'
+                    def projectName = 'todotbackend'
                     def dockerTag = 'dockerTag'
-                    def dockerImage = "dockerhub-username/${projectName}:${dockerTag}"
-
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-credentials-id', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                        sh """
-                            docker build -t ${dockerImage} .
-                            echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin
-                            docker push ${dockerImage}
-                        """
+                    def dockerImage = "${projectName}:${dockerTag}"
+                    
+                    sh "docker build -t ${dockerImage} ."
+                    
+                    withCredentials([usernamePassword(credentialsId: 'credentials-id', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        sh "echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin"
+                        sh "docker push ${dockerImage}"
                     }
                 }
             }
         }
-
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    def projectName = 'todobackend'
-                    def dockerTag = 'dockerTag'
-                    def dockerImage = "dockerhub-username/${projectName}:${dockerTag}"
-                    def containerPort = 'container-port'
-                    def servicePort = 'service-port'
-
-                    writeFile file: 'deployment.yaml', text: """
+                    def deploymentYaml = """
                     apiVersion: apps/v1
                     kind: Deployment
                     metadata:
-                      name: ${projectName}
+                      name: todotbackend-deployment
                     spec:
                       replicas: 1
                       selector:
                         matchLabels:
-                          app: ${projectName}
+                          app: todotbackend
                       template:
                         metadata:
                           labels:
-                            app: ${projectName}
+                            app: todotbackend
                         spec:
                           containers:
-                          - name: ${projectName}
-                            image: ${dockerImage}
+                          - name: todotbackend
+                            image: todotbackend:dockerTag
                             ports:
-                            - containerPort: ${containerPort}
+                            - containerPort: container-port
                     """
-
-                    writeFile file: 'service.yaml', text: """
+                    
+                    def serviceYaml = """
                     apiVersion: v1
                     kind: Service
                     metadata:
-                      name: ${projectName}
+                      name: todotbackend-service
                     spec:
                       selector:
-                        app: ${projectName}
+                        app: todotbackend
                       ports:
                       - protocol: TCP
-                        port: ${servicePort}
-                        targetPort: ${containerPort}
+                        port: service-port
+                        targetPort: container-port
                     """
-
+                    
+                    writeFile file: 'deployment.yaml', text: deploymentYaml
+                    writeFile file: 'service.yaml', text: serviceYaml
+                    
                     sh 'kubectl apply -f deployment.yaml'
                     sh 'kubectl apply -f service.yaml'
                 }
             }
         }
-
         stage('Sleep') {
             steps {
                 sleep time: 1, unit: 'MINUTES'
             }
         }
-
         stage('Port Forward') {
             steps {
-                script {
-                    def serviceName = 'todobackend'
-                    def containerPort = 'container-port'
-                    def servicePort = 'service-port'
-
-                    sh "kubectl port-forward --address 0.0.0.0 service/${serviceName} ${containerPort}:${servicePort}"
-                }
+                sh 'kubectl port-forward --address 0.0.0.0 service/todotbackend-service container-port:service-port'
             }
         }
     }
